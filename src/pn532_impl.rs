@@ -1,10 +1,10 @@
-use ::pn532::tags::{Tag, ISO14443A, TagResponse};
+use ::pn532::tags::{Tag, ISO14443A};
 use ::pn532::bus::{WaitRead, BusWrite};
 use ::pn532::PN532;
 use ::pn532::error::CommError;
 use ::NFCTag;
 
-impl<'r, 'p, D: WaitRead + BusWrite> NFCTag for Tag<'p, ISO14443A<'r>, PN532<D>> where CommError<D::ReadError, D::WriteError>: ::std::error::Error, for<'r2> ISO14443A<'r>: TagResponse<'r2> {
+impl<'r, 'p, D: WaitRead + BusWrite> NFCTag for Tag<'p, 'r, ISO14443A<'r>, PN532<D>> where CommError<D::ReadError, D::WriteError>: ::std::error::Error {
     type TransceiveError = CommError<D::ReadError, D::WriteError>;
 
     fn tag_id(&self) -> &[u8] {
