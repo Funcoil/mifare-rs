@@ -1,0 +1,10 @@
+[package]
+name = "mifare"
+version = "0.1.0"
+authors = ["Martin Habovštiak <martin.habovstiak@gmail.com>"]
+
+[features]
+with_pn532 = ["pn532"]
+
+[dependencies]
+pn532 = { git = "https://github.com/Funcoil/pn532-rs", optional = true }
