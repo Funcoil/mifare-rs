@@ -58,7 +58,7 @@ impl<T: NFCTag> MifareTag<T> {
     }
 
     /// Returns id of underlying tag.
-    fn tag_id(&self) -> &[u8] {
+    pub fn tag_id(&self) -> &[u8] {
         self.tag.tag_id()
     }
 }
