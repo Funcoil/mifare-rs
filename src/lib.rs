@@ -16,6 +16,12 @@ pub trait NFCTag {
     fn transceive(&mut self, data_to_tag: &[u8], data_from_tag: &mut [u8]) -> Result<usize, Self::TransceiveError>;
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum KeyOption {
+    KeyA,
+    KeyB,
+}
+
 /// Encapsulates Mifare tag.
 pub struct MifareTag<T> {
     tag: T,
@@ -33,10 +39,15 @@ impl<T: NFCTag> MifareTag<T> {
     }
 
     /// Authenticates to sector using key.
-    pub fn authenticate_sector<'s>(&'s mut self, sector_number: u8, key: &[u8; 6]) -> Result<AuthenticatedSector<'s, T>, T::TransceiveError> {
+    pub fn authenticate_sector<'s>(&'s mut self, sector_number: u8, key_option: KeyOption, key: &[u8; 6]) -> Result<AuthenticatedSector<'s, T>, T::TransceiveError> {
+        let cmd = match key_option {
+            KeyOption::KeyA => 0x60,
+            KeyOption::KeyB => 0x61,
+        };
+
         let (auth_cmd_buf, len) = {
             let tag_id = self.tag.tag_id();
-            let mut auth_cmd_buf = [0x60, sector_number * 4, key[0], key[1], key[2], key[3], key[4], key[5], tag_id[0], tag_id[1], tag_id[2], tag_id[3], 0x00, 0x00, 0x00];
+            let mut auth_cmd_buf = [cmd, sector_number * 4, key[0], key[1], key[2], key[3], key[4], key[5], tag_id[0], tag_id[1], tag_id[2], tag_id[3], 0x00, 0x00, 0x00];
             if tag_id.len() == 7 {
                 auth_cmd_buf[12] = tag_id[4];
                 auth_cmd_buf[13] = tag_id[5];
