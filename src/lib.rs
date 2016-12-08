@@ -1,8 +1,16 @@
-
 #[cfg(feature = "with_pn532")]
 extern crate pn532;
 #[cfg(feature = "with_pn532")]
 mod pn532_impl;
+
+/// Typesafe numeric types related to Mifare tags.
+pub mod numerics;
+
+pub use numerics::{SectorNumber1K, SectorNumber4K, BlockOffset};
+
+// Abbreviation
+type SectorBlockOffset4K = numerics::SectorBlockOffset<numerics::Cap4K>;
+type AbsoluteBlockOffset4K = numerics::AbsoluteBlockOffset<numerics::Cap4K>;
 
 /// Represents NFC tag which could be Mifare tag.
 pub trait NFCTag {
@@ -16,6 +24,7 @@ pub trait NFCTag {
     fn transceive(&mut self, data_to_tag: &[u8], data_from_tag: &mut [u8]) -> Result<usize, Self::TransceiveError>;
 }
 
+/// Type used for selecting authentication key.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum KeyOption {
     KeyA,
@@ -39,7 +48,9 @@ impl<T: NFCTag> MifareTag<T> {
     }
 
     /// Authenticates to sector using key.
-    pub fn authenticate_sector<'s>(&'s mut self, sector_number: u8, key_option: KeyOption, key: &[u8; 6]) -> Result<AuthenticatedSector<'s, T>, T::TransceiveError> {
+    pub fn authenticate_sector<'s, SN: Into<SectorBlockOffset4K>>(&'s mut self, sector_number: SN, key_option: KeyOption, key: &[u8; 6]) -> Result<AuthenticatedSector<'s, T>, T::TransceiveError> {
+        let sector_offset = sector_number.into();
+
         let cmd = match key_option {
             KeyOption::KeyA => 0x60,
             KeyOption::KeyB => 0x61,
@@ -47,7 +58,7 @@ impl<T: NFCTag> MifareTag<T> {
 
         let (auth_cmd_buf, len) = {
             let tag_id = self.tag.tag_id();
-            let mut auth_cmd_buf = [cmd, sector_number * 4, key[0], key[1], key[2], key[3], key[4], key[5], tag_id[0], tag_id[1], tag_id[2], tag_id[3], 0x00, 0x00, 0x00];
+            let mut auth_cmd_buf = [cmd, sector_offset.into(), key[0], key[1], key[2], key[3], key[4], key[5], tag_id[0], tag_id[1], tag_id[2], tag_id[3], 0x00, 0x00, 0x00];
             if tag_id.len() == 7 {
                 auth_cmd_buf[12] = tag_id[4];
                 auth_cmd_buf[13] = tag_id[5];
@@ -65,7 +76,7 @@ impl<T: NFCTag> MifareTag<T> {
         // Empty response on success
         try!(self.tag.transceive(auth_cmd, &mut resp));
 
-        Ok(AuthenticatedSector { tag: self, sector_number: sector_number })
+        Ok(AuthenticatedSector { tag: self, sector_offset: sector_offset })
     }
 
     /// Returns id of underlying tag.
@@ -78,27 +89,23 @@ impl<T: NFCTag> MifareTag<T> {
 /// When sector is authenticated, you can perform reading and writing.
 pub struct AuthenticatedSector<'a, T: 'a> {
     tag: &'a mut MifareTag<T>,
-    sector_number: u8,
+    sector_offset: SectorBlockOffset4K,
 }
 
 impl<'a, T: 'a + NFCTag> AuthenticatedSector<'a, T> {
     /// Reads 16 bytes of data from given block
     ///
     /// Warning: This interface is temporary and will change!
-    pub fn read_block(&mut self, pos: u8, buf: &mut [u8]) -> Result<(), T::TransceiveError> {
-        if pos > 3 {
-            panic!("Position can't be bigger than 3! (Was {}.)", pos);
-        }
-
-        let read_cmd = [0x30, self.sector_number * 4 + pos];
+    pub fn read_block(&mut self, offset: BlockOffset, buf: &mut [u8]) -> Result<(), T::TransceiveError> {
+        let read_cmd = [0x30, (self.sector_offset + offset).into()];
         try!(self.tag.tag.transceive(&read_cmd, buf));
         Ok(())
     }
 
-    fn write_block_raw(&mut self, pos: u8, data: &[u8; 16]) -> Result<(), T::TransceiveError> {
+    fn write_block_raw(&mut self, offset: AbsoluteBlockOffset4K, data: &[u8; 16]) -> Result<(), T::TransceiveError> {
         let mut write_cmd = [0; 18];
         write_cmd[0] = 0xA0;
-        write_cmd[1] = self.sector_number * 4 + pos;
+        write_cmd[1] = offset.into();
         write_cmd[2..].copy_from_slice(&*data);
 
         let mut resp = [0; 16];
@@ -111,11 +118,9 @@ impl<'a, T: 'a + NFCTag> AuthenticatedSector<'a, T> {
     /// WARNING: NOT tested!!! Use at your own risk! By writing incorrect values, you may
     /// permanently damage the tag!
     /// This interface is temporary and will change!
-    pub fn write_block(&mut self, pos: u8, data: &[u8; 16]) -> Result<(), T::TransceiveError> {
-        if pos > 2 {
-            panic!("writing to invalid block ({}; valid range is 0...2)", pos);
-        }
-        self.write_block_raw(pos, data)
+    pub fn write_block(&mut self, offset: BlockOffset, data: &[u8; 16]) -> Result<(), T::TransceiveError> {
+        let offset = self.sector_offset + offset;
+        self.write_block_raw(offset, data)
     }
 
     /// Writes keys as well as access bits
@@ -124,6 +129,7 @@ impl<'a, T: 'a + NFCTag> AuthenticatedSector<'a, T> {
     /// permanently damage the tag!
     /// This interface is temporary and will change!
     pub fn write_keys(&mut self, data: &[u8; 16]) -> Result<(), T::TransceiveError> {
-        self.write_block_raw(3, data)
+        let offset = self.sector_offset.sector_trailer();
+        self.write_block_raw(offset, data)
     }
 }
